@@ -1,0 +1,26 @@
+{
+    "name": "dream-app",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next start"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.97.0",
+        "dexie": "^4.3.0",
+        "dexie-react-hooks": "^1.1.7",
+        "next": "^15.2.1",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "tweetnacl": "^1.0.3",
+        "tweetnacl-util": "^0.15.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "typescript": "^5.0.0"
+    }
+}
