@@ -16,6 +16,7 @@ import React, {
     KeyboardEvent as ReactKE,
 } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
+import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@supabase/supabase-js";
 import { db, Conversation, Message } from "../lib/localDb";
 import {
@@ -29,6 +30,8 @@ import {
     DecryptedMessage,
 } from "../hooks/useChatQueue";
 import { usePresence } from "../hooks/usePresence";
+import storageEngine from "../lib/storageEngine";
+import { Check, Loader2, Settings } from "lucide-react";
 
 // ─── Supabase client ─────────────────────────────────────────────────────────
 const supabase = createClient(
@@ -42,6 +45,9 @@ interface ChatWindowProps {
     onStartCall?: (targetUserId: string) => void;
     sendFile?: (file: File) => Promise<void>;
     transferProgress?: { sender: number; receiver: number };
+    isStealth: boolean;
+    setIsStealth: (v: boolean) => void;
+    onSignOut: () => Promise<void>;
 }
 
 interface SearchResult {
@@ -211,7 +217,7 @@ const MessageBubble = React.memo(({ message, isMine, onDelete, onReply }: { mess
 MessageBubble.displayName = "MessageBubble";
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile, transferProgress }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile, transferProgress, isStealth, setIsStealth, onSignOut }) => {
     // Active conversation
     const [activeConvId, setActiveConvId] = useState<string | null>(null);
     const [activePeerId, setActivePeerId] = useState<string | null>(null);
@@ -229,6 +235,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [displayNameInput, setDisplayNameInput] = useState("");
     const [avatarUrlInput, setAvatarUrlInput] = useState("");
+    const [tagInput, setTagInput] = useState("");
+    const [isCheckingTag, setIsCheckingTag] = useState(false);
+    const [tagAvailable, setTagAvailable] = useState<boolean | null>(null);
+    const [tagMessage, setTagMessage] = useState("");
+    const [settingsToast, setSettingsToast] = useState("");
+    const [showNukeConfirm, setShowNukeConfirm] = useState(false);
 
     // Tag search
     const [tagQuery, setTagQuery] = useState("");
@@ -254,14 +266,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
     const fileInputRef = useRef<HTMLInputElement>(null);
     const searchTimeout = useRef<NodeJS.Timeout | null>(null);
 
+    // Fetch my tag, display name, avatar
     useEffect(() => {
-        supabase
-            .from("profiles")
-            .select("user_tag, display_name, avatar_url")
-            .eq("id", myUserId)
-            .single()
+        if (!myUserId) return;
+        supabase.from("profiles").select("user_tag, display_name, avatar_url").eq("id", myUserId).single()
             .then(({ data }) => {
-                if (data?.user_tag) setMyTag(data.user_tag);
+                if (data?.user_tag) {
+                    setMyTag(data.user_tag);
+                    setTagInput(data.user_tag);
+                }
                 if (data?.display_name) {
                     setMyDisplayName(data.display_name);
                     setDisplayNameInput(data.display_name);
@@ -273,21 +286,72 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
             });
     }, [myUserId]);
 
-    // ── Save Profile Settings ──────────────────────────────────────────────────
+    // Advanced Settings Modal Handlers
+    const handleTagChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value.toUpperCase();
+        setTagInput(val);
+        setTagAvailable(null);
+        setTagMessage("");
+
+        if (!val.startsWith("#") || val.length !== 7) {
+            setTagMessage("Tag must be 7 characters starting with #");
+            return;
+        }
+        if (val === myTag) {
+            setTagAvailable(true);
+            return;
+        }
+
+        setIsCheckingTag(true);
+        const { data } = await supabase.from("profiles").select("id").eq("user_tag", val).single();
+        setIsCheckingTag(false);
+        if (data) {
+            setTagAvailable(false);
+            setTagMessage("Tag is already taken");
+        } else {
+            setTagAvailable(true);
+            setTagMessage("Tag is available!");
+        }
+    };
+
     const handleSaveSettings = async (e: FormEvent) => {
         e.preventDefault();
-        try {
-            const { error } = await supabase
-                .from("profiles")
-                .update({ display_name: displayNameInput, avatar_url: avatarUrlInput })
-                .eq("id", myUserId);
-
-            if (error) throw error;
+        const updates: any = { display_name: displayNameInput, avatar_url: avatarUrlInput };
+        if (tagInput && tagInput !== myTag && tagAvailable) {
+            updates.user_tag = tagInput;
+        }
+        const { error } = await supabase.from("profiles").update(updates).eq("id", myUserId);
+        if (error) {
+            alert(`Error: ${error.message}`);
+        } else {
             setMyDisplayName(displayNameInput);
             setMyAvatarUrl(avatarUrlInput);
-            setIsSettingsOpen(false);
-        } catch (err: any) {
-            alert(`Failed to save settings: ${err.message}`);
+            if (updates.user_tag) setMyTag(updates.user_tag);
+
+            // Persist stealth mode
+            localStorage.setItem("dream_stealth", isStealth ? "true" : "false");
+
+            setSettingsToast("Settings saved successfully");
+            setTimeout(() => {
+                setSettingsToast("");
+                setIsSettingsOpen(false);
+            }, 1500);
+        }
+    };
+
+    const handleNukeDevice = async () => {
+        if (!confirm("Are you entirely sure you want to PERMANENTLY delete all local messages, conversations, and your encryption key from this device? You will not be able to read existing encrypted messages again.")) {
+            setShowNukeConfirm(false);
+            return;
+        }
+
+        try {
+            await db.delete();
+            await storageEngine.removePrivateKey();
+            await onSignOut();
+        } catch (e) {
+            console.error("Failed to nuke device:", e);
+            alert("An error occurred wiping the device");
         }
     };
 
@@ -998,69 +1062,185 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
             {/* ══════════════════════════════════════
                 SETTINGS MODAL
                 ══════════════════════════════════════ */}
-            {isSettingsOpen && (
-                <div style={{
-                    position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 1000,
-                    display: "flex", alignItems: "center", justifyContent: "center"
-                }}>
-                    <div style={{
-                        background: "#1e2435", width: "90%", maxWidth: "400px", borderRadius: "16px",
-                        padding: "24px", border: "1px solid rgba(255,255,255,0.1)",
-                        boxShadow: "0 20px 40px rgba(0,0,0,0.5)"
-                    }}>
-                        <h2 style={{ fontSize: "1.2rem", fontWeight: 600, color: "#fff", marginBottom: "20px" }}>Profile Settings</h2>
-                        <form onSubmit={handleSaveSettings} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                            <div>
-                                <label style={{ display: "block", fontSize: "0.8rem", color: "rgba(255,255,255,0.6)", marginBottom: "8px" }}>Display Name</label>
-                                <input
-                                    type="text"
-                                    value={displayNameInput}
-                                    onChange={e => setDisplayNameInput(e.target.value)}
-                                    placeholder="e.g. Satoshi Nakamoto"
-                                    style={{
-                                        width: "100%", padding: "12px", borderRadius: "8px",
-                                        background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)",
-                                        color: "#fff", fontSize: "1rem"
-                                    }}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ display: "block", fontSize: "0.8rem", color: "rgba(255,255,255,0.6)", marginBottom: "8px" }}>Avatar URL</label>
-                                <input
-                                    type="url"
-                                    value={avatarUrlInput}
-                                    onChange={e => setAvatarUrlInput(e.target.value)}
-                                    placeholder="https://example.com/avatar.png"
-                                    style={{
-                                        width: "100%", padding: "12px", borderRadius: "8px",
-                                        background: "rgba(0,0,0,0.2)", border: "1px solid rgba(255,255,255,0.1)",
-                                        color: "#fff", fontSize: "1rem"
-                                    }}
-                                />
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "8px" }}>
+            {/* ══════════════════════════════════════
+                ADVANCED SETTINGS MODAL
+                ══════════════════════════════════════ */}
+            <AnimatePresence>
+                {isSettingsOpen && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] flex items-center justify-center p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20, opacity: 0 }}
+                            animate={{ scale: 1, y: 0, opacity: 1 }}
+                            exit={{ scale: 0.95, y: 20, opacity: 0 }}
+                            className="bg-[#1e2435]/90 backdrop-blur-xl w-full max-w-md rounded-2xl border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden"
+                        >
+                            <div className="p-6 border-b border-white/5 flex justify-between items-center">
+                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                    <Settings size={20} className="text-neon-green" />
+                                    Advanced Settings
+                                </h2>
                                 <button
-                                    type="button"
                                     onClick={() => setIsSettingsOpen(false)}
-                                    style={{
-                                        padding: "10px 16px", background: "none", border: "none",
-                                        color: "rgba(255,255,255,0.6)", cursor: "pointer", fontWeight: 600
-                                    }}>
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    style={{
-                                        padding: "10px 20px", background: "#25D366", border: "none",
-                                        color: "#000", cursor: "pointer", fontWeight: 700, borderRadius: "8px"
-                                    }}>
-                                    Save
+                                    className="text-gray-400 hover:text-white transition-colors"
+                                >
+                                    ✕
                                 </button>
                             </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+
+                            <div className="p-6 max-h-[70vh] overflow-y-auto overflow-x-hidden custom-scrollbar">
+                                <form id="settings-form" onSubmit={handleSaveSettings} className="flex flex-col gap-6">
+
+                                    {/* Profile Section */}
+                                    <div className="space-y-4">
+                                        <h3 className="text-sm font-semibold text-neon-green uppercase tracking-wider">Social Identity</h3>
+
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1.5 ml-1">Display Name</label>
+                                            <input
+                                                type="text"
+                                                value={displayNameInput}
+                                                onChange={e => setDisplayNameInput(e.target.value)}
+                                                placeholder="e.g. Satoshi Nakamoto"
+                                                className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-neon-green/50 focus:ring-1 focus:ring-neon-green/50 transition-all"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1.5 ml-1">Avatar URL</label>
+                                            <input
+                                                type="url"
+                                                value={avatarUrlInput}
+                                                onChange={e => setAvatarUrlInput(e.target.value)}
+                                                placeholder="https://example.com/avatar.png"
+                                                className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-neon-green/50 focus:ring-1 focus:ring-neon-green/50 transition-all"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs text-gray-400 mb-1.5 ml-1">Custom User Tag</label>
+                                            <div className="relative">
+                                                <input
+                                                    type="text"
+                                                    value={tagInput}
+                                                    onChange={handleTagChange}
+                                                    placeholder="#XXXXXX"
+                                                    maxLength={7}
+                                                    className={`w-full bg-black/20 border ${tagAvailable === false ? 'border-red-500/50' : tagAvailable === true ? 'border-neon-green/50' : 'border-white/10'} rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none transition-all font-mono`}
+                                                />
+                                                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                                    {isCheckingTag && <Loader2 size={16} className="text-gray-400 animate-spin" />}
+                                                    {!isCheckingTag && tagAvailable === true && tagInput !== myTag && <Check size={16} className="text-neon-green" />}
+                                                </div>
+                                            </div>
+                                            {tagMessage && (
+                                                <p className={`text-xs mt-1.5 ml-1 ${tagAvailable === false ? 'text-red-400' : tagAvailable === true ? 'text-neon-green' : 'text-gray-400'}`}>
+                                                    {tagMessage}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="h-px bg-white/5 w-full my-2" />
+
+                                    {/* Privacy Section */}
+                                    <div className="space-y-4">
+                                        <h3 className="text-sm font-semibold text-neon-green uppercase tracking-wider">Presence Privacy</h3>
+
+                                        <div className="flex items-center justify-between p-4 bg-black/20 rounded-xl border border-white/5">
+                                            <div>
+                                                <div className="font-medium text-white text-sm">Stealth Mode</div>
+                                                <div className="text-xs text-gray-400 mt-1">Hide from 'Active Now' completely</div>
+                                            </div>
+                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    className="sr-only peer"
+                                                    checked={isStealth}
+                                                    onChange={(e) => setIsStealth(e.target.checked)}
+                                                />
+                                                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-neon-green shadow-inner"></div>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div className="h-px bg-white/5 w-full my-2" />
+
+                                    {/* Security Section */}
+                                    <div className="space-y-4">
+                                        <h3 className="text-sm font-semibold text-red-500 uppercase tracking-wider">Danger Zone</h3>
+
+                                        <div className="p-4 bg-red-500/10 rounded-xl border border-red-500/20">
+                                            <div className="font-medium text-red-200 text-sm mb-1 text-center">Nuke This Device</div>
+                                            <div className="text-xs text-red-300/70 mb-4 text-center">
+                                                Instantly wipes all decrypted messages, conversations, and your private encryption key from local storage.
+                                            </div>
+
+                                            {!showNukeConfirm ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowNukeConfirm(true)}
+                                                    className="w-full py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-sm font-bold transition-colors"
+                                                >
+                                                    Initiate Nuke Sequence
+                                                </button>
+                                            ) : (
+                                                <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
+                                                    <div className="text-xs text-red-400 text-center font-bold mb-1 uppercase tracking-widest animate-pulse">Confirm Destructive Action</div>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowNukeConfirm(false)}
+                                                            className="flex-1 py-2 bg-gray-800 text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleNukeDevice}
+                                                            className="flex-1 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-[0_0_15px_rgba(220,38,38,0.5)] transition-colors"
+                                                        >
+                                                            CONFIRM NUKE
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                </form>
+                            </div>
+
+                            <div className="p-4 border-t border-white/5 bg-black/20 flex items-center justify-between">
+                                <div className="text-xs text-neon-green px-2 font-medium h-4">
+                                    {settingsToast}
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsSettingsOpen(false)}
+                                        className="px-5 py-2 text-sm text-gray-400 font-medium hover:text-white transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        form="settings-form"
+                                        type="submit"
+                                        className="px-6 py-2 bg-neon-green text-black text-sm font-bold rounded-xl hover:bg-neon-green/90 shadow-[0_0_15px_rgba(37,211,102,0.2)] transition-colors"
+                                    >
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </div>
+
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

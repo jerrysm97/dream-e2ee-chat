@@ -66,6 +66,12 @@ export interface StorageEngine {
      * @returns The Base64-encoded private key, or `null` if not found.
      */
     getPrivateKey(): Promise<string | null>;
+
+    /**
+     * Deletes the stored Curve25519 private key.
+     * Use sparingly, such as for a "Nuke Device" security feature.
+     */
+    removePrivateKey(): Promise<void>;
 }
 
 // ─── Web Implementation (localStorage) ───────────────────────────────────────
@@ -100,6 +106,12 @@ export const webStorageEngine: StorageEngine = {
 
         return localStorage.getItem(PRIVATE_KEY_STORAGE_ID);
     },
+
+    async removePrivateKey(): Promise<void> {
+        if (typeof window !== "undefined" && window.localStorage) {
+            localStorage.removeItem(PRIVATE_KEY_STORAGE_ID);
+        }
+    }
 };
 
 // ─── Default Export ───────────────────────────────────────────────────────────

@@ -1,6 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+    .glass-panel {
+        @apply bg-white/5 border border-white/10 backdrop-blur-[20px];
+    }
+}
+
 /* ============================================================
    dream-chat.css  — Dream E2EE Chat — Professional Dark Theme
-   Semantic class names, no Tailwind dependency
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -1091,3 +1100,5 @@ textarea {
         opacity: 0.55;
     }
 }
+
+/* Removed unused Phase 13 Portal UI CSS. All replaced by Tailwind classes in app/page.tsx */

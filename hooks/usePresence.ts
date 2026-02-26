@@ -6,7 +6,7 @@ const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export function usePresence(myUserId: string | null | undefined) {
+export function usePresence(myUserId: string | null | undefined, isStealth: boolean = false) {
     const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
 
     useEffect(() => {
@@ -49,15 +49,17 @@ export function usePresence(myUserId: string | null | undefined) {
                 });
             })
             .subscribe(async (status) => {
-                if (status === 'SUBSCRIBED') {
+                if (status === 'SUBSCRIBED' && !isStealth) {
                     await channel.track({ status: 'online' });
                 }
             });
 
         return () => {
+            // Un-track explicitly on unmount just to be safe, though removeChannel handles it
+            if (!isStealth) channel.untrack();
             supabase.removeChannel(channel);
         };
-    }, [myUserId]);
+    }, [myUserId, isStealth]);
 
     return onlineUsers;
 }

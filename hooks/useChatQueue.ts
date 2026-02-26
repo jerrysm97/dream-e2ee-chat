@@ -110,17 +110,26 @@ async function decryptAndAcknowledge(
     }
 
     let plainText: string;
-
     try {
         plainText = decryptMessage(row.cipher_text, senderPublicKey, myPrivateKeyBase64);
     } catch (err) {
-        // ⚠️  Decryption failed — do NOT delete the row.
-        // Possible causes: corrupted ciphertext, key mismatch, tampered payload.
+        // ⚠️  Decryption failed — provide a graceful fallback to the UI
+        // and DELETE from queue to prevent the app from getting stuck in an error loop.
         console.error(
-            `[useChatQueue] Decryption FAILED for message ${row.id}. ` +
-            "Message preserved in queue for investigation. Error:",
+            `[useChatQueue] Decryption FAILED for message ${row.id}. PURGING FROM QUEUE. Error:`,
             err
         );
+
+        onMessageDecrypted({
+            id: row.id,
+            senderId: row.sender_id,
+            senderPublicKeyBase64: senderPublicKey,
+            plainText: "🚫 [End-to-End Encryption Error: Message could not be decrypted on this device. This usually happens after a session reset.]",
+            receivedAt: row.created_at,
+        });
+
+        // Delete from server to clear the blockage
+        await supabase.from("message_queue").delete().eq("id", row.id);
         return;
     }
 

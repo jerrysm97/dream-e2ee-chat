@@ -212,7 +212,7 @@ const VideoCallOverlay: React.FC<VideoCallOverlayProps> = ({
                 {/* ── Screen Shield ─────────────────────────────────────────────────── */}
                 {shieldActive && (
                     <div
-                        className="absolute inset-0 bg-black flex flex-col items-center justify-center z-10"
+                        className="absolute inset-0 bg-black/80 glass-panel flex flex-col items-center justify-center z-10"
                         aria-live="assertive"
                     >
                         <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center mb-4">
