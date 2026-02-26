@@ -9,33 +9,50 @@ const config: Config = {
     theme: {
         extend: {
             colors: {
-                neon: {
-                    green: "#25D366",
-                    blue: "#00d2ff",
-                    purple: "#9d50bb",
-                },
-                portal: {
-                    bg: "#050a14",
+                dream: {
+                    bg: '#FFFFFF',
+                    surface: '#F8F5F5',
+                    border: '#E8DCDC',
+                    primary: '#8B1A2B',
+                    primaryLight: '#B83346',
+                    text: '#1A1A1A',
+                    muted: '#7A6B6B',
+                    danger: '#DC2626',
+                    sent: '#8B1A2B',
+                    received: '#F0E6E8',
+                    online: '#16A34A',
                 },
             },
-            backgroundImage: {
-                'portal-gradient': 'radial-gradient(circle at top right, #0a1f1a, #050a14)',
+            fontFamily: {
+                sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+            },
+            borderRadius: {
+                DEFAULT: '8px',
+                sm: '6px',
+                lg: '12px',
+                xl: '16px',
+                full: '9999px',
             },
             animation: {
-                'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                'fade-in-slide': 'fadeInSlide 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
-                'pulse-border': 'pulseBorder 2s ease-in-out infinite',
+                'fade-in': 'fadeIn 0.3s ease-out forwards',
+                'slide-up': 'slideUp 0.3s ease-out forwards',
+                'pulse-soft': 'pulseSoft 2s ease-in-out infinite',
             },
             keyframes: {
-                fadeInSlide: {
-                    '0%': { opacity: '0', transform: 'translateY(15px)' },
+                fadeIn: {
+                    '0%': { opacity: '0' },
+                    '100%': { opacity: '1' },
+                },
+                slideUp: {
+                    '0%': { opacity: '0', transform: 'translateY(8px)' },
                     '100%': { opacity: '1', transform: 'translateY(0)' },
                 },
-                pulseBorder: {
-                    '0%, 100%': { boxShadow: '0 0 0 0 rgba(37, 211, 102, 0.7)' },
-                    '50%': { boxShadow: '0 0 0 10px rgba(37, 211, 102, 0)' },
-                }
-            }
+                pulseSoft: {
+                    '0%, 100%': { opacity: '1' },
+                    '50%': { opacity: '0.6' },
+                },
+            },
         },
     },
     plugins: [],

@@ -46,8 +46,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createClient, RealtimeChannel } from "@supabase/supabase-js";
-import webStorageEngine from "../lib/storageEngine";
-import { encryptBinary, decryptBinary } from "../lib/cryptoEngine";
+import { loadPrivateKey } from "../lib/crypto/keyStore";
+import { encryptBinary, decryptBinary } from "../lib/crypto/cryptoEngine";
 import { db } from "../lib/localDb";
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
@@ -92,6 +92,13 @@ type SignalPayload = OfferSignal | AnswerSignal | IceCandidateSignal | HangupSig
 
 // ─── Hook Return Type ─────────────────────────────────────────────────────────
 
+/** Payload sent over data channel for game moves */
+export interface GameMovePayload {
+    type: 'GAME_MOVE';
+    game: 'tictactoe';
+    payload: { index: number; player: 'X' | 'O' };
+}
+
 export interface UseWebRTCReturn {
     /** The local camera/mic stream — attach to a <video> element with ref.srcObject */
     localStream: MediaStream | null;
@@ -109,6 +116,10 @@ export interface UseWebRTCReturn {
     transferProgress: { sender: number; receiver: number };
     /** Send a file directly over the WebRTC data channel */
     sendFile: (file: File) => Promise<void>;
+    /** Send a game move over the WebRTC data channel */
+    sendGameMove: (index: number, player: 'X' | 'O') => void;
+    /** Register a callback to receive game moves from the peer */
+    setOnGameMove: (cb: ((move: GameMovePayload) => void) | null) => void;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -123,6 +134,7 @@ export function useWebRTC(myUserId: string): UseWebRTCReturn {
 
     const [transferProgress, setTransferProgress] = useState<{ sender: number, receiver: number }>({ sender: 0, receiver: 0 });
     const dataChannelRef = useRef<RTCDataChannel | null>(null);
+    const onGameMoveRef = useRef<((move: GameMovePayload) => void) | null>(null);
 
     useEffect(() => {
         activePeerIdRef.current = activePeerId;
@@ -204,13 +216,16 @@ export function useWebRTC(myUserId: string): UseWebRTCReturn {
         let receivedSize = 0;
         let fileMetadata: any = null;
 
-        let cachedPrivateKey: string | null = null;
+        let cachedPrivateKey: CryptoKey | null = null;
         let cachedPeerPublicKey: string | null = null;
 
         channel.onmessage = async (event) => {
             if (typeof event.data === "string") {
                 const data = JSON.parse(event.data);
-                if (data.type === 'metadata') {
+                if (data.type === 'GAME_MOVE') {
+                    // Route game moves to the registered callback
+                    onGameMoveRef.current?.(data as GameMovePayload);
+                } else if (data.type === 'metadata') {
                     fileMetadata = data;
                     receivedBuffers = [];
                     receivedSize = 0;
@@ -220,7 +235,7 @@ export function useWebRTC(myUserId: string): UseWebRTCReturn {
                     const currentPeer = activePeerIdRef.current;
                     if (currentPeer) {
                         try {
-                            cachedPrivateKey = await webStorageEngine.getPrivateKey();
+                            cachedPrivateKey = await loadPrivateKey();
                             const conv = await db.conversations.get([myUserId, currentPeer].sort().join("__"));
                             cachedPeerPublicKey = conv?.peer_public_key || null;
                         } catch (err) {
@@ -248,7 +263,7 @@ export function useWebRTC(myUserId: string): UseWebRTCReturn {
                     if (!cachedPrivateKey || !cachedPeerPublicKey) return;
 
                     const encryptedChunk = new Uint8Array(event.data);
-                    const decryptedChunk = decryptBinary(encryptedChunk, cachedPeerPublicKey, cachedPrivateKey);
+                    const decryptedChunk = await decryptBinary(encryptedChunk, cachedPeerPublicKey, cachedPrivateKey);
 
                     receivedBuffers.push(decryptedChunk);
                     receivedSize += decryptedChunk.length;
@@ -473,7 +488,7 @@ export function useWebRTC(myUserId: string): UseWebRTCReturn {
         const currentPeer = activePeerIdRef.current;
         if (!currentPeer) throw new Error("No active peer");
 
-        const myPrivateKey = await webStorageEngine.getPrivateKey();
+        const myPrivateKey = await loadPrivateKey();
         const conv = await db.conversations.get([myUserId, currentPeer].sort().join("__"));
         const peerPublicKey = conv?.peer_public_key;
 
@@ -506,7 +521,7 @@ export function useWebRTC(myUserId: string): UseWebRTCReturn {
             const chunkBlob = file.slice(offset, offset + CHUNK_SIZE);
             const chunkData = await readChunk(chunkBlob);
 
-            const encryptedChunk = encryptBinary(chunkData, peerPublicKey, myPrivateKey);
+            const encryptedChunk = await encryptBinary(chunkData, peerPublicKey, myPrivateKey);
 
             // Wait if the buffer is too full
             if (dc.bufferedAmount > dc.bufferedAmountLowThreshold) {
@@ -534,6 +549,25 @@ export function useWebRTC(myUserId: string): UseWebRTCReturn {
         setTimeout(() => setTransferProgress(prev => ({ ...prev, sender: 0 })), 3000);
     }, [myUserId]);
 
+    // ── 5. sendGameMove ──────────────────────────────────────────────────────
+
+    const sendGameMove = useCallback((index: number, player: 'X' | 'O') => {
+        if (!dataChannelRef.current || dataChannelRef.current.readyState !== 'open') {
+            console.warn('[useWebRTC] Cannot send game move — data channel not open');
+            return;
+        }
+        const payload: GameMovePayload = {
+            type: 'GAME_MOVE',
+            game: 'tictactoe',
+            payload: { index, player },
+        };
+        dataChannelRef.current.send(JSON.stringify(payload));
+    }, []);
+
+    const setOnGameMove = useCallback((cb: ((move: GameMovePayload) => void) | null) => {
+        onGameMoveRef.current = cb;
+    }, []);
+
     return {
         localStream,
         remoteStream,
@@ -543,5 +577,7 @@ export function useWebRTC(myUserId: string): UseWebRTCReturn {
         endCall,
         transferProgress,
         sendFile,
+        sendGameMove,
+        setOnGameMove,
     };
 }

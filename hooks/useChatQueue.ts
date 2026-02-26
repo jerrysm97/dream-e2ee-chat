@@ -27,8 +27,8 @@
 
 import { useEffect, useRef } from "react";
 import { createClient, RealtimeChannel } from "@supabase/supabase-js";
-import { encryptMessage, decryptMessage } from "../lib/cryptoEngine";
-import storageEngine from "../lib/storageEngine";
+import { encryptMessage, decryptMessage } from "../lib/crypto/cryptoEngine";
+import { loadPrivateKey } from "../lib/crypto/keyStore";
 import { db } from "../lib/localDb";
 
 // ─── Supabase client ──────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ async function fetchPublicKey(userId: string): Promise<string> {
  */
 async function decryptAndAcknowledge(
     row: MessageQueueRow,
-    myPrivateKeyBase64: string,
+    myPrivateKey: CryptoKey,
     onMessageDecrypted: (msg: DecryptedMessage) => void
 ): Promise<void> {
     let senderPublicKey: string;
@@ -111,7 +111,7 @@ async function decryptAndAcknowledge(
 
     let plainText: string;
     try {
-        plainText = decryptMessage(row.cipher_text, senderPublicKey, myPrivateKeyBase64);
+        plainText = await decryptMessage(row.cipher_text, senderPublicKey, myPrivateKey);
     } catch (err) {
         // ⚠️  Decryption failed — provide a graceful fallback to the UI
         // and DELETE from queue to prevent the app from getting stuck in an error loop.
@@ -183,7 +183,7 @@ export async function sendMessage(
     const recipientPublicKey = await fetchPublicKey(recipientId);
 
     // Get sender's local private key
-    const myPrivateKey = await storageEngine.getPrivateKey();
+    const myPrivateKey = await loadPrivateKey();
     if (!myPrivateKey) {
         throw new Error(
             "[useChatQueue] Cannot send message: no local private key found. " +
@@ -192,7 +192,7 @@ export async function sendMessage(
     }
 
     // Encrypt — nonce is generated fresh inside encryptMessage (see cryptoEngine.ts)
-    const cipherText = encryptMessage(plainText, recipientPublicKey, myPrivateKey);
+    const cipherText = await encryptMessage(plainText, recipientPublicKey, myPrivateKey);
 
     // Insert into queue
     const { error } = await supabase.from("message_queue").insert({
@@ -330,7 +330,7 @@ export async function drainOfflineQueue(
     myUserId: string,
     onMessageDecrypted: (msg: DecryptedMessage) => void
 ): Promise<void> {
-    const myPrivateKey = await storageEngine.getPrivateKey();
+    const myPrivateKey = await loadPrivateKey();
     if (!myPrivateKey) {
         console.warn("[useChatQueue] drainOfflineQueue: no local private key. Skipping sweep.");
         return;
@@ -385,7 +385,7 @@ export function listenForMessages(
     let channel: RealtimeChannel;
 
     // Resolve the private key once and capture it in closure.
-    storageEngine.getPrivateKey().then((myPrivateKey) => {
+    loadPrivateKey().then((myPrivateKey) => {
         if (!myPrivateKey) {
             console.error(
                 "[useChatQueue] listenForMessages: no local private key found. " +

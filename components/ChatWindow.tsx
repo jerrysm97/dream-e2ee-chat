@@ -30,8 +30,11 @@ import {
     DecryptedMessage,
 } from "../hooks/useChatQueue";
 import { usePresence } from "../hooks/usePresence";
-import storageEngine from "../lib/storageEngine";
-import { Check, Loader2, Settings } from "lucide-react";
+import { clearKeyStore } from "../lib/crypto/keyStore";
+import { Check, Loader2, Settings, Gamepad2 } from "lucide-react";
+import TicTacToeWidget from "./TicTacToeWidget";
+import type { GameMovePayload } from "../hooks/useWebRTC";
+import CodeSnippet from "./chat/CodeSnippet";
 
 // ─── Supabase client ─────────────────────────────────────────────────────────
 const supabase = createClient(
@@ -48,11 +51,14 @@ interface ChatWindowProps {
     isStealth: boolean;
     setIsStealth: (v: boolean) => void;
     onSignOut: () => Promise<void>;
+    sendGameMove: (index: number, player: 'X' | 'O') => void;
+    setOnGameMove: (cb: ((move: GameMovePayload) => void) | null) => void;
 }
 
 interface SearchResult {
     id: string;
     user_tag: string;
+    display_name: string | null;
     public_key: string | null;
 }
 
@@ -163,6 +169,35 @@ const SettingsIcon = () => (
     </svg>
 );
 
+const renderTextWithSnippets = (text: string) => {
+    if (!text) return null;
+    const parts = text.split(/(```[\w]*\n[\s\S]*?```)/g);
+
+    return parts.map((part, index) => {
+        if (part.startsWith("```") && part.endsWith("```")) {
+            const firstLineBreak = part.indexOf("\n");
+            let language = "";
+            let codeContent = part.slice(3, -3);
+
+            if (firstLineBreak !== -1 && firstLineBreak < 20) {
+                const potentialLang = part.slice(3, firstLineBreak).trim();
+                if (!potentialLang.includes(" ") && potentialLang.length > 0) {
+                    language = potentialLang;
+                    codeContent = part.slice(firstLineBreak + 1, -3);
+                }
+            }
+
+            if (codeContent.endsWith("\n")) {
+                codeContent = codeContent.slice(0, -1);
+            }
+
+            return <CodeSnippet key={index} code={codeContent} language={language} />;
+        }
+
+        return part ? <span key={index}>{part}</span> : null;
+    });
+};
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 const MessageBubble = React.memo(({ message, isMine, onDelete, onReply }: { message: Message & { link_preview?: any }; isMine: boolean; onDelete: (id: string) => void; onReply: (msg: Message) => void }) => {
 
@@ -185,7 +220,7 @@ const MessageBubble = React.memo(({ message, isMine, onDelete, onReply }: { mess
                     </div>
                 )}
 
-                <p className="bubble-text">{message.text}</p>
+                <div className="bubble-text whitespace-pre-wrap">{renderTextWithSnippets(message.text)}</div>
 
                 {message.link_preview && (
                     <a href={message.link_preview.url} target="_blank" rel="noopener noreferrer" className="bubble-link-preview">
@@ -217,7 +252,7 @@ const MessageBubble = React.memo(({ message, isMine, onDelete, onReply }: { mess
 MessageBubble.displayName = "MessageBubble";
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile, transferProgress, isStealth, setIsStealth, onSignOut }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile, transferProgress, isStealth, setIsStealth, onSignOut, sendGameMove, setOnGameMove }) => {
     // Active conversation
     const [activeConvId, setActiveConvId] = useState<string | null>(null);
     const [activePeerId, setActivePeerId] = useState<string | null>(null);
@@ -241,6 +276,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
     const [tagMessage, setTagMessage] = useState("");
     const [settingsToast, setSettingsToast] = useState("");
     const [showNukeConfirm, setShowNukeConfirm] = useState(false);
+
+    // Game state
+    const [isGameOpen, setIsGameOpen] = useState(false);
 
     // Tag search
     const [tagQuery, setTagQuery] = useState("");
@@ -347,7 +385,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
 
         try {
             await db.delete();
-            await storageEngine.removePrivateKey();
+            await clearKeyStore();
             await onSignOut();
         } catch (e) {
             console.error("Failed to nuke device:", e);
@@ -543,20 +581,28 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
         setSearching(true);
 
         searchTimeout.current = setTimeout(async () => {
-            // Normalise: make sure query starts with # for prefix match
-            const q = val.trim().startsWith("#") ? val.trim() : `#${val.trim()}`;
+            const q = val.trim();
+            const isTagSearch = q.startsWith("#");
 
-            const { data, error } = await supabase
+            let query = supabase
                 .from("profiles")
-                .select("id, user_tag, public_key")
-                .ilike("user_tag", `${q}%`)      // prefix search
-                .neq("id", myUserId)             // exclude self
+                .select("id, user_tag, display_name, public_key")
+                .neq("id", myUserId)
                 .limit(8);
+
+            if (isTagSearch) {
+                query = query.ilike("user_tag", `${q}%`);
+            } else {
+                // Search by display_name OR tag
+                query = query.or(`display_name.ilike.%${q}%,user_tag.ilike.%${q}%`);
+            }
+
+            const { data, error } = await query;
 
             setSearching(false);
             if (error) { setSearchMsg("Search error — try again"); return; }
             if (!data || data.length === 0) {
-                setSearchMsg(q.length >= 4 ? "No user found with that tag" : "Keep typing…");
+                setSearchMsg(q.length >= 2 ? "No user found" : "Keep typing…");
                 return;
             }
             setSearchResults(data as SearchResult[]);
@@ -779,14 +825,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
 
                 {/* ── Tag Search / Add Contact ───────────────────────────── */}
                 <div className="add-peer-section" style={{ position: "relative" }} ref={searchRef as any}>
-                    <div className="add-peer-label">Add contact by tag</div>
+                    <div className="add-peer-label">Find people by name or tag</div>
                     <div style={{ position: "relative" }}>
                         <input
                             id="tag-search-input"
                             className="add-peer-input"
                             style={{ width: "100%", paddingLeft: "2rem" }}
                             type="text"
-                            placeholder="#ABC123 — search by tag…"
+                            placeholder="Search by name or #tag…"
                             value={tagQuery}
                             onChange={e => handleTagInput(e.target.value)}
                             autoComplete="off"
@@ -794,7 +840,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                         {/* Search icon inside input */}
                         <span style={{
                             position: "absolute", left: "0.625rem", top: "50%", transform: "translateY(-50%)",
-                            color: "rgba(255,255,255,0.3)", pointerEvents: "none"
+                            color: "#B0A0A0", pointerEvents: "none"
                         }}>
                             <SearchIcon />
                         </span>
@@ -803,18 +849,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                         {showResults && (
                             <div style={{
                                 position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
-                                background: "#1e2435", border: "1px solid rgba(255,255,255,0.1)",
+                                background: "#FFFFFF", border: "1px solid #E8DCDC",
                                 borderRadius: "12px", overflow: "hidden", zIndex: 50,
-                                boxShadow: "0 8px 24px rgba(0,0,0,0.5)"
+                                boxShadow: "0 8px 24px rgba(0,0,0,0.1)"
                             }}>
                                 {searching && (
-                                    <div style={{ padding: "0.75rem 1rem", color: "rgba(255,255,255,0.4)", fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                        <div style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: "#25D366", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                                    <div style={{ padding: "0.75rem 1rem", color: "#7A6B6B", fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                        <div style={{ width: 12, height: 12, border: "2px solid #E8DCDC", borderTopColor: "#8B1A2B", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
                                         Searching…
                                     </div>
                                 )}
                                 {!searching && searchMsg && (
-                                    <div style={{ padding: "0.75rem 1rem", color: "rgba(255,255,255,0.35)", fontSize: "0.75rem" }}>{searchMsg}</div>
+                                    <div style={{ padding: "0.75rem 1rem", color: "#7A6B6B", fontSize: "0.75rem" }}>{searchMsg}</div>
                                 )}
                                 {!searching && searchResults.map(r => (
                                     <button
@@ -824,31 +870,34 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                             display: "flex", alignItems: "center", gap: "0.75rem",
                                             width: "100%", padding: "0.625rem 0.875rem",
                                             background: "none", border: "none", cursor: "pointer",
-                                            borderBottom: "1px solid rgba(255,255,255,0.04)",
+                                            borderBottom: "1px solid #F0E6E8",
                                             transition: "background 0.1s"
                                         }}
-                                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(37,211,102,0.08)")}
+                                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(139,26,43,0.05)")}
                                         onMouseLeave={e => (e.currentTarget.style.background = "none")}
                                     >
                                         {/* Avatar */}
                                         <div style={{
                                             width: 34, height: 34, borderRadius: "50%",
-                                            background: "linear-gradient(135deg,#25D366,#128C7E)",
+                                            background: "linear-gradient(135deg,#8B1A2B,#B83346)",
                                             display: "flex", alignItems: "center", justifyContent: "center",
                                             color: "#fff", fontWeight: 700, fontSize: "0.75rem", flexShrink: 0
                                         }}>
                                             {r.user_tag.slice(1, 3)}
                                         </div>
                                         <div style={{ flex: 1, textAlign: "left" }}>
-                                            <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#e5e7eb" }}>{r.user_tag}</div>
-                                            <div style={{ fontSize: "0.65rem", color: "rgba(37,211,102,0.7)", marginTop: 2 }}>
-                                                {r.public_key ? "🔒 E2EE key ready" : "⚠ Key not set up yet"}
+                                            <div style={{ fontSize: "0.875rem", fontWeight: 600, color: "#1A1A1A" }}>
+                                                {r.display_name || r.user_tag}
+                                            </div>
+                                            <div style={{ fontSize: "0.65rem", color: "#7A6B6B", marginTop: 2 }}>
+                                                {r.display_name ? r.user_tag + " · " : ""}
+                                                {r.public_key ? "🔒 E2EE ready" : "⚠ Key not set"}
                                             </div>
                                         </div>
                                         <div style={{
-                                            padding: "3px 10px", background: "rgba(37,211,102,0.12)",
-                                            border: "1px solid rgba(37,211,102,0.25)", borderRadius: "999px",
-                                            fontSize: "0.65rem", color: "#25D366", fontWeight: 600
+                                            padding: "3px 10px", background: "rgba(139,26,43,0.08)",
+                                            border: "1px solid rgba(139,26,43,0.2)", borderRadius: "999px",
+                                            fontSize: "0.65rem", color: "#8B1A2B", fontWeight: 600
                                         }}>
                                             Add
                                         </div>
@@ -881,12 +930,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                     <div className="conv-meta-row">
                                         <span className="conv-name">
                                             {conv.peer_tag ?? conv.peer_id.slice(0, 12) + "…"}
-                                            {onlineUsers.has(conv.peer_id) && <span style={{ display: 'inline-block', width: 8, height: 8, background: '#25D366', borderRadius: '50%', marginLeft: 6, verticalAlign: 'middle' }} />}
+                                            {onlineUsers.has(conv.peer_id) && <span style={{ display: 'inline-block', width: 8, height: 8, background: '#16A34A', borderRadius: '50%', marginLeft: 6, verticalAlign: 'middle' }} />}
                                         </span>
                                         <span className="conv-time">{fmtTime(conv.updated_at)}</span>
                                     </div>
                                     <div className="conv-snippet">
-                                        {typingPeers[conv.peer_id] ? <span style={{ color: '#25D366', fontStyle: 'italic' }}>Typing…</span> : (conv.last_message_snippet || "No messages yet")}
+                                        {typingPeers[conv.peer_id] ? <span style={{ color: '#8B1A2B', fontStyle: 'italic' }}>Typing…</span> : (conv.last_message_snippet || "No messages yet")}
                                     </div>
                                 </div>
                             </button>
@@ -903,7 +952,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                         </button>
                     </div>
                     <button className="sidebar-my-id" onClick={handleCopyMyTag} aria-label="Copy my tag">
-                        <span style={{ fontSize: "1rem", fontWeight: 700, color: "#25D366", letterSpacing: "0.08em" }}>
+                        <span style={{ fontSize: "1rem", fontWeight: 700, color: "#8B1A2B", letterSpacing: "0.08em" }}>
                             {myTag || "Loading…"}
                         </span>
                         <span className="sidebar-copy-icon"><CopyIcon /></span>
@@ -930,7 +979,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                 </div>
                                 <div className="chat-header-e2ee">
                                     {typingPeers[activePeerId] ? (
-                                        <span style={{ color: "#25D366", fontStyle: "italic", fontSize: "0.8rem" }}>Typing…</span>
+                                        <span style={{ color: "#8B1A2B", fontStyle: "italic", fontSize: "0.8rem" }}>Typing…</span>
                                     ) : (
                                         <>
                                             <div className="chat-header-e2ee-dot" />
@@ -953,6 +1002,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                         <VideoIcon />
                                     </button>
                                 )}
+                                <button
+                                    className="chat-call-btn"
+                                    onClick={() => setIsGameOpen(true)}
+                                    aria-label="Play Tic-Tac-Toe"
+                                    title="Play Tic-Tac-Toe"
+                                >
+                                    <Gamepad2 size={16} />
+                                </button>
                             </div>
                         </header>
 
@@ -967,18 +1024,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                         {transferProgress && (transferProgress.sender > 0 || transferProgress.receiver > 0) && (
                             <div style={{
                                 padding: "6px 16px",
-                                background: "rgba(0,0,0,0.4)",
-                                borderBottom: "1px solid rgba(255,255,255,0.05)",
+                                background: "#F8F5F5",
+                                borderBottom: "1px solid #E8DCDC",
                                 display: "flex", flexDirection: "column", gap: 4
                             }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "rgba(255,255,255,0.7)" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", color: "#7A6B6B" }}>
                                     <span>{transferProgress.sender > 0 ? "Sending file…" : "Receiving file…"}</span>
                                     <span>{Math.max(transferProgress.sender, transferProgress.receiver)}%</span>
                                 </div>
-                                <div style={{ width: "100%", height: 3, background: "rgba(255,255,255,0.1)", borderRadius: 4, overflow: "hidden" }}>
+                                <div style={{ width: "100%", height: 3, background: "#E8DCDC", borderRadius: 4, overflow: "hidden" }}>
                                     <div style={{
                                         width: `${Math.max(transferProgress.sender, transferProgress.receiver)}%`,
-                                        height: "100%", background: "#25D366", transition: "width 0.2s linear"
+                                        height: "100%", background: "#8B1A2B", transition: "width 0.2s linear"
                                     }} />
                                 </div>
                             </div>
@@ -990,15 +1047,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                             {replyingTo && (
                                 <div style={{
                                     position: "absolute", bottom: "100%", left: 0, right: 0,
-                                    background: "#1e2435", borderTop: "1px solid rgba(255,255,255,0.05)",
+                                    background: "#F8F5F5", borderTop: "1px solid #E8DCDC",
                                     padding: "8px 16px", display: "flex", alignItems: "center", gap: "10px",
-                                    borderLeft: "4px solid #25D366"
+                                    borderLeft: "4px solid #8B1A2B"
                                 }}>
-                                    <div style={{ flex: 1, fontSize: "0.8rem", color: "rgba(255,255,255,0.6)" }}>
-                                        <div style={{ color: "#25D366", fontWeight: "bold", marginBottom: "2px" }}>Replying to</div>
+                                    <div style={{ flex: 1, fontSize: "0.8rem", color: "#7A6B6B" }}>
+                                        <div style={{ color: "#8B1A2B", fontWeight: "bold", marginBottom: "2px" }}>Replying to</div>
                                         <div>{snippet(replyingTo.text, 60)}</div>
                                     </div>
-                                    <button onClick={() => setReplyingTo(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.4)", cursor: "pointer", padding: "4px" }}>
+                                    <button onClick={() => setReplyingTo(null)} style={{ background: "none", border: "none", color: "#7A6B6B", cursor: "pointer", padding: "4px" }}>
                                         ✕
                                     </button>
                                 </div>
@@ -1009,7 +1066,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                 onClick={() => fileInputRef.current?.click()}
                                 aria-label="Attach file"
                                 style={{
-                                    background: "none", border: "none", color: "rgba(255,255,255,0.5)",
+                                    background: "none", border: "none", color: "#7A6B6B",
                                     cursor: "pointer", padding: "8px", display: "flex", alignItems: "center"
                                 }}
                             >
@@ -1037,7 +1094,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                             <button id="send-message-btn" className="send-btn"
                                 onClick={handleSend} disabled={!inputText.trim() || isSending} aria-label="Send message">
                                 {isSending
-                                    ? <div style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                                    ? <div style={{ width: 16, height: 16, border: "2px solid rgba(139,26,43,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
                                     : <SendIcon />}
                             </button>
                         </footer>
@@ -1048,7 +1105,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                             <div className="chat-empty-illus">🔐</div>
                             <div className="chat-empty-title">Dream — Secure Chat</div>
                             <div className="chat-empty-body">
-                                Search a contact by their tag (e.g. <strong style={{ color: "#25D366" }}>#AB3X7K</strong>) in the sidebar to start a private conversation.
+                                Search a contact by their tag (e.g. <strong style={{ color: "#8B1A2B" }}>#AB3X7K</strong>) in the sidebar to start a private conversation.
                             </div>
                             <div className="chat-empty-tag">
                                 <LockIcon size={11} />
@@ -1071,58 +1128,58 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] flex items-center justify-center p-4"
+                        className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[1000] flex items-center justify-center p-4"
                     >
                         <motion.div
                             initial={{ scale: 0.95, y: 20, opacity: 0 }}
                             animate={{ scale: 1, y: 0, opacity: 1 }}
                             exit={{ scale: 0.95, y: 20, opacity: 0 }}
-                            className="bg-[#1e2435]/90 backdrop-blur-xl w-full max-w-md rounded-2xl border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden"
+                            className="bg-white w-full max-w-md rounded-2xl border border-dream-border shadow-xl overflow-hidden"
                         >
-                            <div className="p-6 border-b border-white/5 flex justify-between items-center">
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                    <Settings size={20} className="text-neon-green" />
-                                    Advanced Settings
+                            <div className="p-6 border-b border-dream-border flex justify-between items-center">
+                                <h2 className="text-xl font-bold text-dream-text flex items-center gap-2">
+                                    <Settings size={20} className="text-dream-primary" />
+                                    Settings
                                 </h2>
                                 <button
                                     onClick={() => setIsSettingsOpen(false)}
-                                    className="text-gray-400 hover:text-white transition-colors"
+                                    className="text-dream-muted hover:text-dream-text transition-colors"
                                 >
                                     ✕
                                 </button>
                             </div>
 
-                            <div className="p-6 max-h-[70vh] overflow-y-auto overflow-x-hidden custom-scrollbar">
+                            <div className="p-6 max-h-[70vh] overflow-y-auto overflow-x-hidden">
                                 <form id="settings-form" onSubmit={handleSaveSettings} className="flex flex-col gap-6">
 
                                     {/* Profile Section */}
                                     <div className="space-y-4">
-                                        <h3 className="text-sm font-semibold text-neon-green uppercase tracking-wider">Social Identity</h3>
+                                        <h3 className="text-sm font-semibold text-dream-primary uppercase tracking-wider">Profile</h3>
 
                                         <div>
-                                            <label className="block text-xs text-gray-400 mb-1.5 ml-1">Display Name</label>
+                                            <label className="block text-xs text-dream-muted mb-1.5 ml-1">Display Name</label>
                                             <input
                                                 type="text"
                                                 value={displayNameInput}
                                                 onChange={e => setDisplayNameInput(e.target.value)}
                                                 placeholder="e.g. Satoshi Nakamoto"
-                                                className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-neon-green/50 focus:ring-1 focus:ring-neon-green/50 transition-all"
+                                                className="w-full bg-dream-surface border border-dream-border rounded-xl px-4 py-3 text-dream-text placeholder-dream-muted focus:outline-none focus:border-dream-primary focus:ring-1 focus:ring-dream-primary/20 transition-all"
                                             />
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs text-gray-400 mb-1.5 ml-1">Avatar URL</label>
+                                            <label className="block text-xs text-dream-muted mb-1.5 ml-1">Avatar URL</label>
                                             <input
                                                 type="url"
                                                 value={avatarUrlInput}
                                                 onChange={e => setAvatarUrlInput(e.target.value)}
                                                 placeholder="https://example.com/avatar.png"
-                                                className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-neon-green/50 focus:ring-1 focus:ring-neon-green/50 transition-all"
+                                                className="w-full bg-dream-surface border border-dream-border rounded-xl px-4 py-3 text-dream-text placeholder-dream-muted focus:outline-none focus:border-dream-primary focus:ring-1 focus:ring-dream-primary/20 transition-all"
                                             />
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs text-gray-400 mb-1.5 ml-1">Custom User Tag</label>
+                                            <label className="block text-xs text-dream-muted mb-1.5 ml-1">Custom User Tag</label>
                                             <div className="relative">
                                                 <input
                                                     type="text"
@@ -1130,31 +1187,31 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                                     onChange={handleTagChange}
                                                     placeholder="#XXXXXX"
                                                     maxLength={7}
-                                                    className={`w-full bg-black/20 border ${tagAvailable === false ? 'border-red-500/50' : tagAvailable === true ? 'border-neon-green/50' : 'border-white/10'} rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none transition-all font-mono`}
+                                                    className={`w-full bg-dream-surface border ${tagAvailable === false ? 'border-red-400' : tagAvailable === true ? 'border-dream-online' : 'border-dream-border'} rounded-xl px-4 py-3 text-dream-text placeholder-dream-muted focus:outline-none transition-all font-mono`}
                                                 />
                                                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                                                    {isCheckingTag && <Loader2 size={16} className="text-gray-400 animate-spin" />}
-                                                    {!isCheckingTag && tagAvailable === true && tagInput !== myTag && <Check size={16} className="text-neon-green" />}
+                                                    {isCheckingTag && <Loader2 size={16} className="text-dream-muted animate-spin" />}
+                                                    {!isCheckingTag && tagAvailable === true && tagInput !== myTag && <Check size={16} className="text-dream-online" />}
                                                 </div>
                                             </div>
                                             {tagMessage && (
-                                                <p className={`text-xs mt-1.5 ml-1 ${tagAvailable === false ? 'text-red-400' : tagAvailable === true ? 'text-neon-green' : 'text-gray-400'}`}>
+                                                <p className={`text-xs mt-1.5 ml-1 ${tagAvailable === false ? 'text-red-500' : tagAvailable === true ? 'text-dream-online' : 'text-dream-muted'}`}>
                                                     {tagMessage}
                                                 </p>
                                             )}
                                         </div>
                                     </div>
 
-                                    <div className="h-px bg-white/5 w-full my-2" />
+                                    <div className="h-px bg-dream-border w-full my-2" />
 
                                     {/* Privacy Section */}
                                     <div className="space-y-4">
-                                        <h3 className="text-sm font-semibold text-neon-green uppercase tracking-wider">Presence Privacy</h3>
+                                        <h3 className="text-sm font-semibold text-dream-primary uppercase tracking-wider">Privacy</h3>
 
-                                        <div className="flex items-center justify-between p-4 bg-black/20 rounded-xl border border-white/5">
+                                        <div className="flex items-center justify-between p-4 bg-dream-surface rounded-xl border border-dream-border">
                                             <div>
-                                                <div className="font-medium text-white text-sm">Stealth Mode</div>
-                                                <div className="text-xs text-gray-400 mt-1">Hide from 'Active Now' completely</div>
+                                                <div className="font-medium text-dream-text text-sm">Stealth Mode</div>
+                                                <div className="text-xs text-dream-muted mt-1">Hide from 'Active Now' completely</div>
                                             </div>
                                             <label className="relative inline-flex items-center cursor-pointer">
                                                 <input
@@ -1163,12 +1220,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                                     checked={isStealth}
                                                     onChange={(e) => setIsStealth(e.target.checked)}
                                                 />
-                                                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-neon-green shadow-inner"></div>
+                                                <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-dream-primary shadow-inner"></div>
                                             </label>
                                         </div>
                                     </div>
 
-                                    <div className="h-px bg-white/5 w-full my-2" />
+                                    <div className="h-px bg-dream-border w-full my-2" />
 
                                     {/* Security Section */}
                                     <div className="space-y-4">
@@ -1184,7 +1241,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowNukeConfirm(true)}
-                                                    className="w-full py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-sm font-bold transition-colors"
+                                                    className="w-full py-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-sm font-bold transition-colors"
                                                 >
                                                     Initiate Nuke Sequence
                                                 </button>
@@ -1195,14 +1252,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                                         <button
                                                             type="button"
                                                             onClick={() => setShowNukeConfirm(false)}
-                                                            className="flex-1 py-2 bg-gray-800 text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+                                                            className="flex-1 py-2 bg-dream-surface text-dream-text rounded-lg text-sm font-medium hover:bg-dream-border transition-colors"
                                                         >
                                                             Cancel
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={handleNukeDevice}
-                                                            className="flex-1 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-[0_0_15px_rgba(220,38,38,0.5)] transition-colors"
+                                                            className="flex-1 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 shadow-sm transition-colors"
                                                         >
                                                             CONFIRM NUKE
                                                         </button>
@@ -1215,22 +1272,22 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
                                 </form>
                             </div>
 
-                            <div className="p-4 border-t border-white/5 bg-black/20 flex items-center justify-between">
-                                <div className="text-xs text-neon-green px-2 font-medium h-4">
+                            <div className="p-4 border-t border-dream-border bg-dream-surface flex items-center justify-between">
+                                <div className="text-xs text-dream-primary px-2 font-medium h-4">
                                     {settingsToast}
                                 </div>
                                 <div className="flex gap-3">
                                     <button
                                         type="button"
                                         onClick={() => setIsSettingsOpen(false)}
-                                        className="px-5 py-2 text-sm text-gray-400 font-medium hover:text-white transition-colors"
+                                        className="px-5 py-2 text-sm text-dream-muted font-medium hover:text-dream-text transition-colors"
                                     >
                                         Cancel
                                     </button>
                                     <button
                                         form="settings-form"
                                         type="submit"
-                                        className="px-6 py-2 bg-neon-green text-black text-sm font-bold rounded-xl hover:bg-neon-green/90 shadow-[0_0_15px_rgba(37,211,102,0.2)] transition-colors"
+                                        className="px-6 py-2 bg-dream-primary text-white text-sm font-bold rounded-xl hover:bg-dream-primaryLight shadow-sm transition-colors"
                                     >
                                         Save Changes
                                     </button>
@@ -1239,6 +1296,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ myUserId, onStartCall, sendFile
 
                         </motion.div>
                     </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* TIC-TAC-TOE GAME MODAL */}
+            <AnimatePresence>
+                {isGameOpen && (
+                    <TicTacToeWidget
+                        mySymbol="X"
+                        sendGameMove={sendGameMove}
+                        setOnGameMove={setOnGameMove}
+                        onClose={() => setIsGameOpen(false)}
+                    />
                 )}
             </AnimatePresence>
         </div>

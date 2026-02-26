@@ -78,6 +78,8 @@ export interface Message {
     reply_to_id?: string;
     /** Truncated snippet of the original message being replied to */
     reply_snippet?: string;
+    /** URL of an attached image (stored in Supabase Storage) */
+    image_url?: string;
 }
 
 // ─── Database Class ───────────────────────────────────────────────────────────
