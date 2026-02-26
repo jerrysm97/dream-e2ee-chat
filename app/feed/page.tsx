@@ -26,12 +26,11 @@ interface Post {
 function timeAgo(dateStr: string) {
     const diff = Date.now() - new Date(dateStr).getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
+    if (mins < 1) return "now";
+    if (mins < 60) return `${mins}m`;
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    return `${days}d ago`;
+    if (hrs < 24) return `${hrs}h`;
+    return `${Math.floor(hrs / 24)}d`;
 }
 
 export default function FeedPage() {
@@ -48,26 +47,19 @@ export default function FeedPage() {
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data }) => {
-            if (!data.session) {
-                router.push("/login");
-            } else {
-                setUserId(data.session.user.id);
-                fetchPosts();
-            }
+            if (!data.session) router.push("/login");
+            else { setUserId(data.session.user.id); fetchPosts(); }
         });
     }, [router]);
 
     async function fetchPosts() {
         setLoading(true);
-        const { data, error } = await supabase
+        const { data } = await supabase
             .from("posts")
             .select("*, author:profiles!author_id(display_name, user_tag, avatar_url)")
             .order("created_at", { ascending: false })
             .limit(50);
-
-        if (!error && data) {
-            setPosts(data as Post[]);
-        }
+        if (data) setPosts(data as Post[]);
         setLoading(false);
     }
 
@@ -85,34 +77,18 @@ export default function FeedPage() {
         if (!newPostText.trim() && !newPostImage) return;
         if (!userId) return;
         setPosting(true);
-
         let imageUrl: string | null = null;
-
         if (newPostImage) {
             const ext = newPostImage.name.split(".").pop();
             const path = `posts/${userId}/${Date.now()}.${ext}`;
-            const { error: uploadErr } = await supabase.storage
-                .from("chat-media")
-                .upload(path, newPostImage, { cacheControl: "3600", upsert: false });
-
+            const { error: uploadErr } = await supabase.storage.from("chat-media").upload(path, newPostImage, { cacheControl: "3600", upsert: false });
             if (!uploadErr) {
                 const { data: urlData } = supabase.storage.from("chat-media").getPublicUrl(path);
                 imageUrl = urlData.publicUrl;
             }
         }
-
-        const { error } = await supabase.from("posts").insert({
-            author_id: userId,
-            content: newPostText.trim(),
-            image_url: imageUrl,
-        });
-
-        if (!error) {
-            setNewPostText("");
-            setNewPostImage(null);
-            setImagePreview(null);
-            fetchPosts();
-        }
+        const { error } = await supabase.from("posts").insert({ author_id: userId, content: newPostText.trim(), image_url: imageUrl });
+        if (!error) { setNewPostText(""); setNewPostImage(null); setImagePreview(null); fetchPosts(); }
         setPosting(false);
     }
 
@@ -122,12 +98,7 @@ export default function FeedPage() {
     }
 
     function toggleLike(postId: string) {
-        setLikedPosts(prev => {
-            const next = new Set(prev);
-            if (next.has(postId)) next.delete(postId);
-            else next.add(postId);
-            return next;
-        });
+        setLikedPosts(prev => { const next = new Set(prev); if (next.has(postId)) next.delete(postId); else next.add(postId); return next; });
     }
 
     function getAuthorInitials(post: Post): string {
@@ -136,113 +107,104 @@ export default function FeedPage() {
     }
 
     if (loading) {
-        return <div className="flex h-screen bg-white items-center justify-center text-dream-primary font-semibold">Loading feed...</div>;
+        return <div className="flex h-screen bg-zk-void items-center justify-center text-zk-gold font-display font-semibold tracking-wider">Loading feed...</div>;
     }
 
     return (
-        <div className="min-h-screen bg-dream-bg">
+        <div className="min-h-screen bg-zk-void">
             {/* Top Bar */}
-            <header className="sticky top-0 z-10 bg-white border-b border-dream-border px-4 py-3 flex items-center gap-3">
-                <button onClick={() => router.push("/portal")} className="p-2 rounded-lg hover:bg-dream-surface transition-colors text-dream-muted">
-                    <ArrowLeft size={20} />
+            <header className="sticky top-0 z-10 bg-zk-surface border-b border-[rgba(201,168,76,0.12)] px-4 py-3 flex items-center gap-3">
+                <button onClick={() => router.push("/portal")} className="p-2 text-zk-ash hover:text-zk-gold transition-colors" style={{ borderRadius: '2px' }}>
+                    <ArrowLeft size={18} />
                 </button>
-                <h1 className="text-lg font-bold text-dream-text">Feed</h1>
+                <h1 className="text-lg font-display font-bold text-zk-gold tracking-wider">Feed</h1>
             </header>
 
-            <div className="max-w-xl mx-auto px-4 py-6 space-y-6">
+            <div className="max-w-xl mx-auto px-4 py-6 space-y-5">
                 {/* Create Post */}
-                <div className="bg-white border border-dream-border rounded-2xl p-5 shadow-sm">
+                <div className="bg-zk-deep border border-[rgba(201,168,76,0.12)] p-5 shadow-zk-panel" style={{ borderRadius: '4px' }}>
                     <textarea
-                        className="w-full bg-dream-surface border border-dream-border rounded-xl p-3 text-sm text-dream-text placeholder-dream-muted focus:outline-none focus:border-dream-primary focus:ring-2 focus:ring-dream-primary/10 transition-all min-h-[80px] resize-none"
-                        placeholder="What's on your mind?"
+                        className="w-full bg-zk-surface border border-[rgba(201,168,76,0.12)] p-3 text-sm text-zk-ivory placeholder:text-zk-ember focus:border-[rgba(201,168,76,0.35)] focus:outline-none transition-all min-h-[80px] resize-none font-body"
+                        style={{ borderRadius: '4px' }}
+                        placeholder="Broadcast a message…"
                         value={newPostText}
                         onChange={e => setNewPostText(e.target.value)}
                     />
                     {imagePreview && (
                         <div className="mt-3 relative">
-                            <img src={imagePreview} alt="Preview" className="w-full max-h-64 object-cover rounded-xl border border-dream-border" />
+                            <img src={imagePreview} alt="Preview" className="w-full max-h-64 object-cover border border-[rgba(201,168,76,0.12)]" style={{ borderRadius: '4px' }} />
                             <button
                                 onClick={() => { setNewPostImage(null); setImagePreview(null); }}
-                                className="absolute top-2 right-2 bg-white/90 p-1.5 rounded-lg border border-dream-border text-dream-danger hover:bg-red-50 transition-colors"
+                                className="absolute top-2 right-2 bg-zk-void/90 p-1.5 border border-[rgba(192,57,43,0.30)] text-zk-crimson hover:bg-[rgba(192,57,43,0.15)] transition-colors"
+                                style={{ borderRadius: '2px' }}
                             >
                                 <Trash2 size={14} />
                             </button>
                         </div>
                     )}
                     <div className="flex items-center justify-between mt-3">
-                        <button
-                            onClick={() => fileRef.current?.click()}
-                            className="flex items-center gap-2 text-sm text-dream-muted hover:text-dream-primary transition-colors p-2 rounded-lg hover:bg-dream-surface"
-                        >
-                            <ImagePlus size={18} />
-                            <span>Photo</span>
+                        <button onClick={() => fileRef.current?.click()} className="flex items-center gap-2 text-sm text-zk-ash hover:text-zk-gold transition-colors p-2 font-mono">
+                            <ImagePlus size={16} />
+                            <span>Attach</span>
                         </button>
                         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
                         <button
                             onClick={handlePost}
                             disabled={posting || (!newPostText.trim() && !newPostImage)}
-                            className="flex items-center gap-2 bg-dream-primary text-white px-5 py-2 rounded-xl text-sm font-semibold hover:bg-dream-primaryLight transition-colors disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                            className="flex items-center gap-2 bg-zk-maroon text-zk-ivory px-5 py-2 text-sm font-display font-semibold hover:bg-zk-hot transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-zk-hot tracking-wider uppercase"
+                            style={{ borderRadius: '2px' }}
                         >
                             <Send size={14} />
-                            {posting ? "Posting..." : "Post"}
+                            {posting ? "Sending..." : "Post"}
                         </button>
                     </div>
                 </div>
 
-                {/* Posts Feed */}
+                {/* Posts */}
                 {posts.length === 0 ? (
                     <div className="text-center py-16">
-                        <div className="text-4xl mb-3">📝</div>
-                        <div className="font-semibold text-dream-text">No posts yet</div>
-                        <div className="text-sm text-dream-muted mt-1">Be the first to share something!</div>
+                        <div className="text-4xl mb-3">📡</div>
+                        <div className="font-display font-semibold text-zk-gold">No broadcasts yet</div>
+                        <div className="text-sm text-zk-ash mt-1 font-body">Be the first to transmit.</div>
                     </div>
                 ) : (
                     posts.map(post => (
-                        <div key={post.id} className="bg-white border border-dream-border rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                            {/* Post Header */}
+                        <div key={post.id} className="bg-zk-deep border border-[rgba(201,168,76,0.12)] overflow-hidden shadow-zk-panel hover:border-[rgba(201,168,76,0.25)] transition-all" style={{ borderRadius: '4px' }}>
                             <div className="flex items-center gap-3 p-4 pb-0">
-                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-dream-primary to-dream-primaryLight flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                                <div className="w-10 h-10 bg-zk-maroon flex items-center justify-center text-zk-gold font-display font-bold text-sm flex-shrink-0" style={{ borderRadius: '2px' }}>
                                     {getAuthorInitials(post)}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <div className="font-semibold text-sm text-dream-text truncate">
+                                    <div className="font-semibold text-sm text-zk-ivory truncate font-body">
                                         {post.author?.display_name || post.author?.user_tag || "Anonymous"}
                                     </div>
-                                    <div className="text-xs text-dream-muted">{timeAgo(post.created_at)}</div>
+                                    <div className="text-[10px] text-zk-gold font-mono">{timeAgo(post.created_at)}</div>
                                 </div>
                                 {post.author_id === userId && (
-                                    <button
-                                        onClick={() => handleDelete(post.id)}
-                                        className="p-2 text-dream-muted hover:text-dream-danger hover:bg-red-50 rounded-lg transition-colors"
-                                    >
+                                    <button onClick={() => handleDelete(post.id)} className="p-2 text-zk-ash hover:text-zk-crimson transition-colors" style={{ borderRadius: '2px' }}>
                                         <Trash2 size={14} />
                                     </button>
                                 )}
                             </div>
-
-                            {/* Post Content */}
                             <div className="px-4 py-3">
-                                <p className="text-sm text-dream-text leading-relaxed whitespace-pre-wrap">{post.content}</p>
+                                <p className="text-sm text-zk-ivory leading-relaxed whitespace-pre-wrap font-body">{post.content}</p>
                             </div>
-
-                            {/* Post Image */}
                             {post.image_url && (
                                 <div className="px-4 pb-3">
-                                    <img src={post.image_url} alt="Post" className="w-full rounded-xl border border-dream-border object-cover max-h-96" />
+                                    <img src={post.image_url} alt="Post" className="w-full border border-[rgba(201,168,76,0.12)] object-cover max-h-96" style={{ borderRadius: '4px' }} />
                                 </div>
                             )}
-
-                            {/* Post Actions */}
-                            <div className="flex items-center gap-1 px-4 py-3 border-t border-dream-border">
+                            <div className="flex items-center gap-1 px-4 py-3 border-t border-[rgba(201,168,76,0.08)]">
                                 <button
                                     onClick={() => toggleLike(post.id)}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${likedPosts.has(post.id) ? "text-dream-primary bg-dream-primary/10" : "text-dream-muted hover:bg-dream-surface"}`}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors font-mono ${likedPosts.has(post.id) ? "text-zk-gold bg-[rgba(201,168,76,0.10)]" : "text-zk-ash hover:text-zk-gold hover:bg-[rgba(107,26,26,0.10)]"}`}
+                                    style={{ borderRadius: '2px' }}
                                 >
-                                    <Heart size={16} fill={likedPosts.has(post.id) ? "#8B1A2B" : "none"} />
+                                    <Heart size={14} fill={likedPosts.has(post.id) ? "#C9A84C" : "none"} />
                                     Like
                                 </button>
-                                <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-dream-muted hover:bg-dream-surface transition-colors">
-                                    <MessageCircle size={16} />
+                                <button className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zk-ash hover:text-zk-gold hover:bg-[rgba(107,26,26,0.10)] transition-colors font-mono" style={{ borderRadius: '2px' }}>
+                                    <MessageCircle size={14} />
                                     Comment
                                 </button>
                             </div>

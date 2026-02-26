@@ -1,10 +1,3 @@
-/**
- * TicTacToeWidget.tsx
- *
- * P2P Tic-Tac-Toe game widget transmitted purely over WebRTC data channels.
- * Zero Supabase interaction — all game state is ephemeral.
- */
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -44,7 +37,6 @@ const TicTacToeWidget: React.FC<TicTacToeWidgetProps> = ({
     setOnGameMove,
     onClose,
 }) => {
-    const opponentSymbol = mySymbol === "X" ? "O" : "X";
     const [board, setBoard] = useState<string[]>(Array(9).fill(""));
     const [isMyTurn, setIsMyTurn] = useState(mySymbol === "X");
     const [winResult, setWinResult] = useState<{ winner: string; line: number[] } | null>(null);
@@ -54,43 +46,30 @@ const TicTacToeWidget: React.FC<TicTacToeWidgetProps> = ({
         setOnGameMove((move: GameMovePayload) => {
             if (move.game !== "tictactoe") return;
             const { index, player } = move.payload;
-
             setBoard(prev => {
                 if (prev[index] !== "") return prev;
                 const next = [...prev];
                 next[index] = player;
-
                 const result = checkWinner(next);
-                if (result) {
-                    setWinResult(result);
-                } else if (checkDraw(next)) {
-                    setIsDraw(true);
-                }
-
+                if (result) setWinResult(result);
+                else if (checkDraw(next)) setIsDraw(true);
                 return next;
             });
             setIsMyTurn(true);
         });
-
         return () => setOnGameMove(null);
     }, [setOnGameMove]);
 
     const handleCellClick = useCallback((index: number) => {
         if (!isMyTurn || board[index] !== "" || winResult || isDraw) return;
-
         const newBoard = [...board];
         newBoard[index] = mySymbol;
         setBoard(newBoard);
         setIsMyTurn(false);
-
         sendGameMove(index, mySymbol);
-
         const result = checkWinner(newBoard);
-        if (result) {
-            setWinResult(result);
-        } else if (checkDraw(newBoard)) {
-            setIsDraw(true);
-        }
+        if (result) setWinResult(result);
+        else if (checkDraw(newBoard)) setIsDraw(true);
     }, [isMyTurn, board, mySymbol, winResult, isDraw, sendGameMove]);
 
     const resetGame = useCallback(() => {
@@ -114,77 +93,65 @@ const TicTacToeWidget: React.FC<TicTacToeWidgetProps> = ({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[2000] flex items-center justify-center p-4"
+            className="fixed inset-0 z-[2000] flex items-center justify-center p-4"
+            style={{ background: 'rgba(13, 0, 0, 0.92)' }}
             onClick={(e) => e.target === e.currentTarget && onClose()}
         >
             <motion.div
-                initial={{ scale: 0.9, y: 30, opacity: 0 }}
+                initial={{ scale: 0.97, y: -8, opacity: 0 }}
                 animate={{ scale: 1, y: 0, opacity: 1 }}
-                exit={{ scale: 0.9, y: 30, opacity: 0 }}
-                transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl border border-dream-border"
+                exit={{ scale: 0.97, y: -8, opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="bg-zk-surface p-6 w-full max-w-sm shadow-zk-panel border border-[rgba(201,168,76,0.35)]"
+                style={{ borderRadius: '4px' }}
             >
-                {/* Header */}
                 <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-dream-primary/10 flex items-center justify-center">
-                            <Zap size={18} className="text-dream-primary" />
+                        <div className="w-9 h-9 bg-zk-maroon flex items-center justify-center" style={{ borderRadius: '2px' }}>
+                            <Zap size={18} className="text-zk-gold" />
                         </div>
                         <div>
-                            <h3 className="font-bold text-dream-text text-base">Tic-Tac-Toe</h3>
-                            <p className="text-[10px] text-dream-muted uppercase tracking-widest">P2P · WebRTC</p>
+                            <h3 className="font-display font-bold text-zk-ivory text-base">Tic-Tac-Toe</h3>
+                            <p className="text-[10px] text-zk-ash uppercase tracking-widest font-mono">P2P · WebRTC</p>
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="text-dream-muted hover:text-dream-text p-2 rounded-lg hover:bg-dream-surface transition-colors"
-                    >
+                    <button onClick={onClose} className="text-zk-ash hover:text-zk-ivory p-2 transition-colors" style={{ borderRadius: '2px' }}>
                         <X size={18} />
                     </button>
                 </div>
 
-                {/* Status */}
-                <div className={`text-center mb-4 text-sm font-semibold tracking-wide py-2 rounded-xl border transition-colors
-                    ${gameOver
-                        ? winResult?.winner === mySymbol
-                            ? "text-dream-online bg-green-50 border-green-200"
-                            : winResult
-                                ? "text-dream-danger bg-red-50 border-red-200"
-                                : "text-amber-600 bg-amber-50 border-amber-200"
-                        : isMyTurn
-                            ? "text-dream-primary bg-dream-primary/5 border-dream-primary/20"
-                            : "text-dream-muted bg-dream-surface border-dream-border"
-                    }`}
-                >
+                <div className={`text-center mb-4 text-sm font-semibold tracking-wide py-2 border transition-colors font-mono ${gameOver
+                    ? winResult?.winner === mySymbol
+                        ? "text-zk-gold bg-[rgba(201,168,76,0.08)] border-[rgba(201,168,76,0.25)]"
+                        : winResult
+                            ? "text-zk-crimson bg-[rgba(192,57,43,0.10)] border-[rgba(192,57,43,0.25)]"
+                            : "text-zk-ember bg-[rgba(139,111,71,0.10)] border-[rgba(139,111,71,0.25)]"
+                    : isMyTurn
+                        ? "text-zk-gold bg-[rgba(201,168,76,0.05)] border-[rgba(201,168,76,0.15)]"
+                        : "text-zk-ash bg-zk-deep border-[rgba(201,168,76,0.08)]"
+                    }`} style={{ borderRadius: '4px' }}>
                     {statusText}
-                    <span className="ml-2 text-xs opacity-60">
-                        (You: {mySymbol})
-                    </span>
+                    <span className="ml-2 text-xs opacity-60">(You: {mySymbol})</span>
                 </div>
 
-                {/* Board Grid */}
                 <div className="grid grid-cols-3 gap-2 mb-5">
                     {board.map((cell, i) => {
                         const isWinCell = winResult?.line.includes(i);
                         return (
                             <motion.button
                                 key={i}
-                                whileHover={!cell && isMyTurn && !gameOver ? { scale: 1.05 } : {}}
                                 whileTap={!cell && isMyTurn && !gameOver ? { scale: 0.95 } : {}}
                                 onClick={() => handleCellClick(i)}
                                 disabled={!!cell || !isMyTurn || gameOver}
-                                className={`
-                                    aspect-square rounded-xl border flex items-center justify-center
-                                    text-3xl font-black transition-all duration-200 relative overflow-hidden
-                                    ${cell
-                                        ? isWinCell
-                                            ? "bg-dream-primary/10 border-dream-primary/40 shadow-sm"
-                                            : "bg-dream-surface border-dream-border"
-                                        : isMyTurn && !gameOver
-                                            ? "bg-dream-surface border-dream-border hover:border-dream-primaryLight hover:bg-dream-primary/5 cursor-pointer"
-                                            : "bg-dream-surface/50 border-dream-border/50 cursor-not-allowed"
-                                    }
-                                `}
+                                className={`aspect-square border flex items-center justify-center text-3xl font-black transition-all duration-150 ${cell
+                                    ? isWinCell
+                                        ? "bg-[rgba(201,168,76,0.10)] border-[rgba(201,168,76,0.35)] shadow-zk-gold"
+                                        : "bg-zk-deep border-[rgba(201,168,76,0.08)]"
+                                    : isMyTurn && !gameOver
+                                        ? "bg-zk-deep border-[rgba(201,168,76,0.08)] hover:border-[rgba(201,168,76,0.25)] hover:bg-[rgba(107,26,26,0.10)] cursor-pointer"
+                                        : "bg-zk-deep border-[rgba(201,168,76,0.05)] cursor-not-allowed opacity-50"
+                                    }`}
+                                style={{ borderRadius: '4px' }}
                             >
                                 <AnimatePresence>
                                     {cell && (
@@ -194,9 +161,9 @@ const TicTacToeWidget: React.FC<TicTacToeWidgetProps> = ({
                                             transition={{ type: "spring", damping: 12 }}
                                         >
                                             {cell === "X" ? (
-                                                <X size={36} strokeWidth={3} className="text-dream-primary" />
+                                                <X size={36} strokeWidth={3} className="text-zk-gold" />
                                             ) : (
-                                                <Circle size={32} strokeWidth={3} className="text-blue-500" />
+                                                <Circle size={32} strokeWidth={3} className="text-zk-gold-pale" />
                                             )}
                                         </motion.div>
                                     )}
@@ -206,18 +173,19 @@ const TicTacToeWidget: React.FC<TicTacToeWidgetProps> = ({
                     })}
                 </div>
 
-                {/* Footer Actions */}
                 <div className="flex gap-3">
                     <button
                         onClick={resetGame}
-                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium bg-dream-surface border border-dream-border text-dream-text hover:bg-dream-border/50 transition-all"
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium bg-zk-deep border border-[rgba(201,168,76,0.12)] text-zk-ivory hover:bg-[rgba(107,26,26,0.15)] transition-all font-body"
+                        style={{ borderRadius: '2px' }}
                     >
                         <RotateCcw size={14} />
                         New Game
                     </button>
                     <button
                         onClick={onClose}
-                        className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-red-50 border border-red-200 text-dream-danger hover:bg-red-100 transition-all"
+                        className="flex-1 py-2.5 text-sm font-medium bg-[rgba(192,57,43,0.10)] border border-[rgba(192,57,43,0.20)] text-zk-crimson hover:bg-[rgba(192,57,43,0.20)] transition-all font-body"
+                        style={{ borderRadius: '2px' }}
                     >
                         Leave
                     </button>

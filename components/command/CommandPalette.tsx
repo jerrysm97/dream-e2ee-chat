@@ -15,7 +15,7 @@ const supabase = createClient(
 interface Command {
     id: string;
     label: string;
-    description: string;
+    tag: string;
     action: () => void;
 }
 
@@ -48,52 +48,28 @@ export default function CommandPalette() {
     }, [commandPaletteOpen]);
 
     const commands: Command[] = [
-        {
-            id: "stealth",
-            label: "Toggle Stealth Mode",
-            description: `Currently ${stealthMode ? "ON" : "OFF"}`,
-            action: () => setStealthMode(!stealthMode),
-        },
-        {
-            id: "split",
-            label: "Toggle Split Pane",
-            description: `Currently ${splitPaneMode}`,
-            action: () => setSplitMode(splitPaneMode === "single" ? "split" : "single"),
-        },
-        {
-            id: "nuke",
-            label: "Destroy Keys & Sign Out",
-            description: "Wipe local encryption keys",
-            action: async () => {
-                await clearKeyStore();
-                await supabase.auth.signOut();
-                router.push("/login");
-            },
-        },
-        {
-            id: "close",
-            label: "Close",
-            description: "Close the command palette",
-            action: () => toggleCommandPalette(),
-        }
+        { id: "stealth", label: "/stealth-mode", tag: stealthMode ? "ON" : "OFF", action: () => setStealthMode(!stealthMode) },
+        { id: "split", label: "/split-pane", tag: splitPaneMode, action: () => setSplitMode(splitPaneMode === "single" ? "split" : "single") },
+        { id: "nuke", label: "/wipe-session", tag: "DANGER", action: async () => { await clearKeyStore(); await supabase.auth.signOut(); router.push("/login"); } },
+        { id: "close", label: "/close", tag: "ESC", action: () => toggleCommandPalette() },
     ];
 
     const filteredCommands = query
-        ? commands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()) || c.id.toLowerCase().includes(query.toLowerCase()))
+        ? commands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()))
         : commands;
 
     if (!commandPaletteOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-28 bg-black/20 backdrop-blur-sm p-4">
-            <div className="w-full max-w-xl bg-white border border-dream-border shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[60vh]">
-                <div className="flex items-center px-4 py-3 border-b border-dream-border bg-dream-surface">
-                    <Search size={16} className="text-dream-muted mr-3" />
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-28 p-4" style={{ background: 'rgba(13, 0, 0, 0.92)' }}>
+            <div className="w-full max-w-[560px] bg-zk-surface border border-[rgba(201,168,76,0.35)] shadow-[0_8px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(139,32,32,0.20)] overflow-hidden flex flex-col max-h-[60vh] animate-palette-in" style={{ borderRadius: '4px' }}>
+                <div className="flex items-center px-5 py-4 border-b border-[rgba(201,168,76,0.12)]">
+                    <span className="text-zk-gold mr-3 font-mono">&gt;</span>
                     <input
                         ref={inputRef}
                         type="text"
-                        className="flex-1 bg-transparent border-none outline-none text-dream-text placeholder-dream-muted text-sm"
-                        placeholder="Search commands..."
+                        className="flex-1 bg-transparent border-none outline-none text-zk-ivory placeholder:text-zk-ember font-mono text-sm"
+                        placeholder="Type a command…"
                         value={query}
                         onChange={e => setQuery(e.target.value)}
                         onKeyDown={e => {
@@ -103,25 +79,25 @@ export default function CommandPalette() {
                             }
                         }}
                     />
-                    <div className="text-[10px] text-dream-muted border border-dream-border px-2 py-0.5 rounded-md font-medium bg-white">ESC</div>
+                    <div className="text-[10px] text-zk-gold border border-[rgba(201,168,76,0.12)] px-2 py-0.5 font-mono bg-[rgba(201,168,76,0.10)]" style={{ borderRadius: '2px' }}>ESC</div>
                 </div>
 
-                <div className="overflow-y-auto flex-1 p-2">
+                <div className="overflow-y-auto flex-1">
                     {filteredCommands.length === 0 ? (
-                        <div className="p-4 text-center text-sm text-dream-muted">No commands found.</div>
+                        <div className="p-4 text-center text-sm text-zk-ash font-body">No commands found.</div>
                     ) : (
-                        <ul className="space-y-1">
+                        <ul>
                             {filteredCommands.map((cmd, idx) => (
                                 <li key={cmd.id}>
                                     <button
-                                        className={`w-full text-left px-4 py-3 text-sm rounded-xl transition-colors flex items-center justify-between ${idx === 0 && query ? 'bg-dream-primary/10 text-dream-primary' : 'text-dream-text hover:bg-dream-surface cursor-pointer'}`}
+                                        className={`w-full text-left px-5 py-3 text-sm transition-all flex items-center justify-between ${idx === 0 && query ? 'bg-[rgba(107,26,26,0.30)] text-zk-ivory border-l-2 border-zk-gold' : 'text-zk-ash hover:bg-[rgba(107,26,26,0.15)] hover:text-zk-ivory cursor-pointer border-l-2 border-transparent'}`}
                                         onClick={() => {
                                             cmd.action();
                                             toggleCommandPalette();
                                         }}
                                     >
-                                        <span className="font-medium">{cmd.label}</span>
-                                        <span className="text-xs text-dream-muted">{cmd.description}</span>
+                                        <span className="font-mono">{cmd.label}</span>
+                                        <span className={`text-xs font-mono px-2 py-0.5 ${cmd.tag === 'DANGER' ? 'text-zk-crimson bg-[rgba(192,57,43,0.10)]' : 'text-zk-gold bg-[rgba(201,168,76,0.10)]'}`} style={{ borderRadius: '2px' }}>{cmd.tag}</span>
                                     </button>
                                 </li>
                             ))}
@@ -129,9 +105,9 @@ export default function CommandPalette() {
                     )}
                 </div>
 
-                <div className="px-4 py-2 border-t border-dream-border bg-dream-surface text-[10px] text-dream-muted flex justify-between">
-                    <span>↑↓ Navigate · Enter Select</span>
-                    <span>Dream · Ctrl+K</span>
+                <div className="px-5 py-2 border-t border-[rgba(201,168,76,0.12)] bg-zk-surface text-[10px] text-zk-ash flex justify-between font-mono">
+                    <span>↑↓ Navigate · Enter Execute</span>
+                    <span>ZK-TERMINAL · Ctrl+K</span>
                 </div>
             </div>
         </div>

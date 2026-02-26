@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { createClient } from "@supabase/supabase-js";
-import ChatWindow from "../ChatWindow";
-import { useWebRTC } from "../../hooks/useWebRTC";
-import { useAuthKeys } from "../../lib/useAuthKeys";
+"use client";
+
+import React from 'react';
+import ChatWindow from '../ChatWindow';
+import { useWebRTC } from '../../hooks/useWebRTC';
+import { createClient } from '@supabase/supabase-js';
+import { useEffect, useState } from 'react';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,43 +12,36 @@ const supabase = createClient(
 );
 
 export default function ChatArea() {
-    const [myUserId, setMyUserId] = useState<string>("local-user");
-    const [isStealth, setIsStealth] = useState(false);
+    const [userId, setUserId] = useState<string | null>(null);
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data }) => {
-            if (data?.session?.user?.id) {
-                setMyUserId(data.session.user.id);
+            if (data.session?.user?.id) {
+                setUserId(data.session.user.id);
             }
         });
     }, []);
 
-    useAuthKeys();
-    const rtc = useWebRTC(myUserId);
+    const webrtc = useWebRTC(userId);
 
-    const handleStartCall = (id: string) => {
-        rtc.startCall(id);
-    };
-
-    const handleSignOut = () => {
-        rtc.endCall();
-        supabase.auth.signOut().then(() => {
-            window.location.reload();
-        });
-    };
+    if (!userId) {
+        return (
+            <div className="flex-1 flex items-center justify-center bg-zk-void text-zk-gold font-display font-semibold tracking-wider">
+                Authenticating...
+            </div>
+        );
+    }
 
     return (
-        <div className="flex-1 bg-white relative flex flex-col min-w-0">
+        <div className="flex-1 overflow-hidden bg-zk-void">
             <ChatWindow
-                myUserId={myUserId}
-                onStartCall={handleStartCall}
-                sendFile={rtc.sendFile}
-                transferProgress={rtc.transferProgress}
-                isStealth={isStealth}
-                setIsStealth={setIsStealth}
-                onSignOut={handleSignOut}
-                sendGameMove={rtc.sendGameMove}
-                setOnGameMove={rtc.setOnGameMove}
+                myUserId={userId}
+                onlineUsers={webrtc.onlineUsers}
+                activeCallPeerId={webrtc.activeCallPeerId}
+                sendMessage={webrtc.sendMessage}
+                onCallUser={(uid) => webrtc.callUser(uid)}
+                sendGameMove={webrtc.sendGameMove}
+                setOnGameMove={(cb: any) => webrtc.setOnGameMove(cb)}
             />
         </div>
     );

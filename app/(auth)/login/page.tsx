@@ -33,26 +33,27 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen bg-dream-bg flex flex-col items-center justify-center p-4">
+        <div className="min-h-screen bg-zk-void flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-sm">
                 {/* Header */}
                 <div className="text-center mb-8">
-                    <div className="w-16 h-16 bg-dream-primary text-white flex items-center justify-center text-xl font-bold mx-auto mb-4 rounded-2xl shadow-lg">
-                        D
+                    <div className="w-14 h-14 bg-zk-maroon text-zk-gold flex items-center justify-center text-xl font-display font-bold mx-auto mb-4 border border-zk-hot" style={{ borderRadius: '2px' }}>
+                        🔒
                     </div>
-                    <h1 className="text-2xl font-bold text-dream-text mb-1">Dream</h1>
-                    <p className="text-sm text-dream-muted">Secure E2EE Messenger</p>
+                    <h1 className="text-2xl font-display font-bold text-zk-gold tracking-wider mb-1">ZK-TERMINAL</h1>
+                    <p className="text-sm text-zk-ash font-mono">Zero-Knowledge Collaboration Terminal</p>
                 </div>
 
                 {/* Card */}
-                <form onSubmit={handleSubmit} className="bg-white border border-dream-border p-7 rounded-2xl shadow-sm">
-                    <div className="text-center text-sm font-semibold text-dream-text mb-6">
-                        {isSignUp ? "Create Account" : "Sign In"}
+                <form onSubmit={handleSubmit} className="bg-zk-deep border border-[rgba(201,168,76,0.12)] p-7 shadow-zk-panel" style={{ borderRadius: '4px' }}>
+                    <div className="text-center text-sm font-display font-semibold text-zk-ivory mb-6 uppercase tracking-wider">
+                        {isSignUp ? "Register" : "Authenticate"}
                     </div>
 
                     <input
                         id="email"
-                        className="w-full bg-dream-surface border border-dream-border text-dream-text text-sm p-3.5 mb-3 rounded-xl focus:border-dream-primary focus:outline-none focus:ring-2 focus:ring-dream-primary/10 transition-all placeholder-dream-muted"
+                        className="w-full bg-zk-surface border border-[rgba(201,168,76,0.12)] text-zk-ivory text-sm p-3.5 mb-3 font-body focus:border-[rgba(201,168,76,0.35)] focus:outline-none transition-all placeholder:text-zk-ember"
+                        style={{ borderRadius: '4px' }}
                         type="email"
                         placeholder="Email address"
                         value={email}
@@ -61,7 +62,8 @@ export default function LoginPage() {
                     />
                     <input
                         id="password"
-                        className="w-full bg-dream-surface border border-dream-border text-dream-text text-sm p-3.5 mb-4 rounded-xl focus:border-dream-primary focus:outline-none focus:ring-2 focus:ring-dream-primary/10 transition-all placeholder-dream-muted"
+                        className="w-full bg-zk-surface border border-[rgba(201,168,76,0.12)] text-zk-ivory text-sm p-3.5 mb-4 font-body focus:border-[rgba(201,168,76,0.35)] focus:outline-none transition-all placeholder:text-zk-ember"
+                        style={{ borderRadius: '4px' }}
                         type="password"
                         placeholder="Password"
                         value={password}
@@ -70,33 +72,38 @@ export default function LoginPage() {
                         minLength={6}
                     />
 
-                    {error && <div className="bg-red-50 border border-red-200 text-dream-danger text-xs p-3 rounded-xl mb-4">{error}</div>}
+                    {error && (
+                        <div className="border-l-[3px] border-zk-crimson bg-[rgba(192,57,43,0.10)] text-zk-ivory text-xs p-3 mb-4" style={{ borderRadius: '0 4px 4px 0' }}>
+                            {error}
+                        </div>
+                    )}
 
                     <button
                         type="submit"
-                        className="w-full bg-dream-primary text-white font-semibold text-sm p-3.5 rounded-xl mb-4 hover:bg-dream-primaryLight transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                        className="w-full bg-zk-maroon text-zk-ivory font-display font-semibold text-sm p-3.5 mb-4 hover:bg-zk-hot transition-colors flex items-center justify-center gap-2 cursor-pointer border border-zk-hot tracking-wider uppercase"
+                        style={{ borderRadius: '2px' }}
                         disabled={loading}
                     >
                         {loading ? (
-                            <span className="animate-pulse">Processing...</span>
+                            <span className="animate-gold-pulse font-mono">Processing...</span>
                         ) : (
-                            isSignUp ? "Create Account" : "Sign In"
+                            isSignUp ? "Register" : "Authenticate"
                         )}
                     </button>
 
                     <button
                         type="button"
-                        className="w-full text-center text-xs text-dream-muted hover:text-dream-primary transition-colors cursor-pointer"
+                        className="w-full text-center text-xs text-zk-ash hover:text-zk-gold transition-colors cursor-pointer font-body"
                         onClick={() => { setIsSignUp((v) => !v); setError(null); }}
                     >
                         {isSignUp
-                            ? "Already have an account? Sign in"
-                            : "Don't have an account? Sign up"}
+                            ? "Already registered? Authenticate"
+                            : "Need access? Register"}
                     </button>
                 </form>
 
-                <div className="text-center mt-6 text-[11px] text-dream-muted">
-                    🔒 End-to-end encrypted messaging
+                <div className="text-center mt-6 text-[11px] text-zk-gold font-mono">
+                    🔒 End-to-end encrypted · Zero-Knowledge
                 </div>
             </div>
         </div>

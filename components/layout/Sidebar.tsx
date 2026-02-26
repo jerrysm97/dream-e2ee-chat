@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { Home, MessageCircle, ShieldCheck, LogOut, Newspaper } from "lucide-react";
+import { MessageCircle, ShieldCheck, LogOut, Newspaper } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 
@@ -22,30 +22,32 @@ export default function Sidebar() {
     };
 
     return (
-        <nav className="w-16 bg-dream-surface flex flex-col items-center py-6 gap-6 z-50 border-r border-dream-border shrink-0">
-            <div className="w-10 h-10 bg-dream-primary text-white flex items-center justify-center mb-4 rounded-lg shadow-sm">
+        <nav className="w-16 bg-zk-surface flex flex-col items-center py-6 gap-6 z-50 border-r border-[rgba(201,168,76,0.12)] shrink-0">
+            <div className="w-10 h-10 bg-zk-maroon text-zk-gold flex items-center justify-center mb-4 font-display font-bold text-sm" style={{ borderRadius: '2px' }}>
                 <ShieldCheck size={20} />
             </div>
 
             <button
                 onClick={() => router.push("/portal")}
-                className={`p-3 rounded-lg transition-colors cursor-pointer ${isActive("/portal") ? "text-dream-primary bg-dream-primary/10" : "text-dream-muted hover:text-dream-primary hover:bg-dream-primary/5"}`}
+                className={`p-3 transition-colors cursor-pointer ${isActive("/portal") ? "text-zk-gold bg-[rgba(107,26,26,0.25)] border-l-2 border-zk-hot" : "text-zk-ash hover:text-zk-ivory hover:bg-[rgba(107,26,26,0.15)]"}`}
+                style={{ borderRadius: '2px' }}
                 title="Messages"
             >
-                <MessageCircle size={20} />
+                <MessageCircle size={18} />
             </button>
 
             <button
                 onClick={() => router.push("/feed")}
-                className={`p-3 rounded-lg transition-colors cursor-pointer ${isActive("/feed") ? "text-dream-primary bg-dream-primary/10" : "text-dream-muted hover:text-dream-primary hover:bg-dream-primary/5"}`}
+                className={`p-3 transition-colors cursor-pointer ${isActive("/feed") ? "text-zk-gold bg-[rgba(107,26,26,0.25)] border-l-2 border-zk-hot" : "text-zk-ash hover:text-zk-ivory hover:bg-[rgba(107,26,26,0.15)]"}`}
+                style={{ borderRadius: '2px' }}
                 title="Feed"
             >
-                <Newspaper size={20} />
+                <Newspaper size={18} />
             </button>
 
             <div className="mt-auto flex flex-col gap-4">
-                <button onClick={onSignOut} className="p-3 rounded-lg text-dream-danger hover:bg-dream-danger/5 transition-colors cursor-pointer" title="Sign Out">
-                    <LogOut size={20} />
+                <button onClick={onSignOut} className="p-3 text-zk-crimson hover:bg-[rgba(192,57,43,0.10)] transition-colors cursor-pointer" style={{ borderRadius: '2px' }} title="Sign Out">
+                    <LogOut size={18} />
                 </button>
             </div>
         </nav>
